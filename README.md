@@ -11,6 +11,7 @@ I am not `responsible` for the possibility of an account being `banned`!
 ## 📎 R2 Node cli version Script features
 
 - Auto send
+- Auto faucet
 - Auto swap
 - Auto stake
 - Auto reff
