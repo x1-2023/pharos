@@ -13,7 +13,7 @@ I am not `responsible` for the possibility of an account being `banned`!
 - Auto send
 - Auto faucet
 - Auto swap
-- Auto stake
+- Auto add liquidity
 - Auto reff
 - Auto checkin
 - Support proxy or not

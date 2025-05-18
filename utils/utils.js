@@ -69,7 +69,7 @@ function updateEnv(variable, value) {
 }
 
 async function sleep(seconds = null) {
-  if (seconds && typeof seconds === "number") return new Promise((resolve) => setTimeout(resolve, +seconds * 1000));
+  if (seconds && typeof seconds === "number") return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 
   let DELAY_BETWEEN_REQUESTS = [1, 5];
   if (seconds && Array.isArray(seconds)) {
@@ -141,7 +141,7 @@ function getRandomElement(arr) {
 }
 
 function getRandomNumber(min, max, fix = 2) {
-  return Number(Math.random() * (max - min) + min).toFixed(fix);
+  return Number((Math.random() * (max - min) + min).toFixed(fix));
 }
 
 function loadData(file) {

@@ -14,7 +14,9 @@ const { showBanner } = require("./core/banner.js");
 const localStorage = require("./localStorage.json");
 const ethers = require("ethers");
 const { solveCaptcha } = require("./utils/captcha.js");
-const { sendToken, checkBalance, swapToken, wrapToken } = require("./utils/contract.js");
+const { sendToken, checkBalance, swapToken, wrapToken, addLp } = require("./utils/contract.js");
+const { TOKEN_ADDRESSES } = require("./utils/constants.js");
+const { performMultipleLPs } = require("./utils/liqulity.js");
 const wallets = loadData("wallets.txt");
 
 // const querystring = require("querystring");
@@ -23,7 +25,7 @@ class ClientAPI {
   constructor(itemData, accountIndex, proxy, baseURL) {
     this.headers = headers;
     this.baseURL = baseURL;
-    this.baseURL_v2 = "";
+    this.baseURL_v2 = settings.BASE_URL_v2;
     this.localItem = null;
     this.itemData = itemData;
     this.accountIndex = accountIndex;
@@ -153,14 +155,17 @@ class ClientAPI {
     method,
     data = {},
     options = {
-      retries: 1,
+      retries: 2,
       isAuth: false,
+      extraHeaders: {},
+      refreshToken: null,
     }
   ) {
-    const { retries, isAuth } = options;
+    const { retries, isAuth, extraHeaders, refreshToken } = options;
 
     const headers = {
       ...this.headers,
+      ...extraHeaders,
     };
 
     if (!isAuth && this.token) {
@@ -178,32 +183,22 @@ class ClientAPI {
 
     do {
       try {
-        const requestData =
-          method.toLowerCase() !== "get"
-            ? data // Convert data to query string format
-            : undefined;
+        // const requestData = method.toLowerCase() !== "get" ? data : undefined;
 
         const response = await axios({
           method,
           url: `${url}`,
-          headers: {
-            ...headers,
-          },
+          headers,
           timeout: 120000,
           ...(proxyAgent ? { httpsAgent: proxyAgent, httpAgent: proxyAgent } : {}),
-          ...(method.toLowerCase() !== "get" ? { data: requestData } : {}),
+          ...(method.toLowerCase() !== "get" ? { data: data } : {}),
         });
-
-        if (response?.data?.msg !== "ok") {
-          if (response.data.code == 100 && url.includes("/login")) {
-            this.log(`Ref code ${REF_CODE} has reached the limit, change another ref`, "warning");
-            await sleep(1);
-            process.exit(0);
-          }
-          return { status: response.data.code, success: false, data: response.data.data, error: response.data };
+        if (response?.data?.code == 0 || response?.data?.msg == "ok") {
+          if (response?.data?.data) return { status: response.status, success: true, data: response.data.data };
+          return { success: true, data: response.data, status: response.status };
+        } else {
+          return { success: false, data: response.data, error: response.data?.msg || response.data, status: response.status };
         }
-        if (response?.data?.data) return { status: response.status, success: true, data: response.data.data };
-        return { success: true, data: response.data, status: response.status };
       } catch (error) {
         errorMessage = error?.response?.data?.error || error.message;
         errorStatus = error.status;
@@ -260,28 +255,8 @@ class ClientAPI {
     return this.makeRequest(`${this.baseURL}/user/login?address=${this.itemData.address}&signature=${signedMessage}&invite_code=${settings.REF_CODE}`, "post", null, { isAuth: true });
   }
 
-  async getNonce() {
-    return this.makeRequest(
-      `${this.baseURL}/account/challenge`,
-      "post",
-      {
-        address: this.itemData.address,
-        chain: 11155111,
-      },
-      { isAuth: true }
-    );
-  }
-
   async getUserData() {
     return this.makeRequest(`${this.baseURL}/user/profile?address=${this.itemData.address}`, "get");
-  }
-
-  async getBalance() {
-    return this.makeRequest(`${this.baseURL}/points/myPoints?chain=11155111`, "get");
-  }
-
-  async getInfoCaptain() {
-    return this.makeRequest(`${this.baseURL}/captain/info`, "get");
   }
 
   async getCheckinStatus() {
@@ -292,7 +267,16 @@ class ClientAPI {
   }
 
   async verifyTask(id) {
-    return this.makeRequest(`${this.baseURL}/task/verify?address=${this.itemData.address}&task_id=${id}`, "post");
+    return this.makeRequest(`${this.baseURL}/task/verify?address=${this.itemData.address}&task_id=${id}`, "post", null);
+  }
+
+  async verifyTaskWithHash({ address, taskId, txHash }) {
+    const verifyUrl = `${this.baseURL}/task/verify?address=${address}&task_id=${taskId}&tx_hash=${txHash}`;
+    return this.makeRequest(verifyUrl, "post", null, {
+      extraHeaders: {
+        Accept: "application/json, text/plain, */*",
+      },
+    });
   }
 
   async getTaskCompleted() {
@@ -314,6 +298,15 @@ class ClientAPI {
     //   return { success: false };
     // }
     return this.makeRequest(`${this.baseURL}/faucet/daily?address=${this.itemData.address}`, "post");
+  }
+
+  async faucetTokens(payload) {
+    return this.makeRequest(`${this.baseURL_v2}/api/v1/faucet`, "post", payload, {
+      extraHeaders: {
+        Origin: "https://testnet.zenithswap.xyz",
+        referer: "https://testnet.zenithswap.xyz/",
+      },
+    });
   }
 
   async getValidToken(isNew = false) {
@@ -357,12 +350,56 @@ class ClientAPI {
         this.log(`Unavaliable Faucet: ${JSON.stringify(resGet)}`, "warning");
       }
     }
+
+    if (settings.AUTO_FAUCET_STABLE_COIN) {
+      const token = getRandomElement(settings.TOKENS_FAUCET);
+      this.log(`Fauceting ${token}...`);
+      const res = await this.faucetTokens({
+        tokenAddress: TOKEN_ADDRESSES[token],
+        userAddress: this.itemData.address,
+      });
+      if (res.success && res.data?.txHash) {
+        this.log(`Faucet ${token} success!`, "success");
+      } else {
+        this.log(`Faucet ${token} failed: ${JSON.stringify(res)}`, "warning");
+      }
+    }
   }
+
+  checkInStatus(checkInArray) {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+
+    const index = (dayOfWeek + 6) % 7;
+
+    const status = checkInArray[index];
+
+    let result,
+      isCheckInAvaliable = false;
+    if (status === "0") {
+      result = "Hôm nay đã check in.";
+    } else if (status === "1") {
+      result = "Hôm nay đã bị bỏ qua.";
+    } else if (status === "2") {
+      result = "Hôm nay chưa check in.";
+      isCheckInAvaliable = true;
+    } else {
+      result = "Trạng thái không hợp lệ.";
+    }
+
+    return {
+      day: index + 1, // Bắt đầu từ 1 đến 7
+      status: result,
+      isCheckInAvaliable,
+    };
+  }
+
   async handleCheckin() {
     const resGt = await this.getCheckinStatus();
     if (!resGt.success) return;
-    const status = resGt.data.status;
-    if (status === "1111222") {
+    const status = resGt.data.status || "2222222";
+    const res = this.checkInStatus(status);
+    if (res.isCheckInAvaliable) {
       const resCheckin = await this.checkin();
       if (resCheckin.success) {
         this.log(`Checkin success!`, "success");
@@ -386,8 +423,8 @@ class ClientAPI {
       retries++;
     } while (retries < 1 && userData.status !== 400);
     const WPHRS_ADDRESS = "0x76aaada469d23216be5f7c596fa25f282ff9b364";
-    const USDC_ADDRESS = "0x4d21582f50Fb5D211fd69ABF065AD07E8738870D";
-    const USDT_ADDRESS = "0x2eD344c586303C98FC3c6D5B42C5616ED42f9D9d";
+    const USDC_ADDRESS = "0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37";
+    const USDT_ADDRESS = "0xed59de2d7ad9c043442e381231ee3646fc3c2939";
     const prams = {
       provider: this.provider,
       wallet: this.wallet,
@@ -431,6 +468,21 @@ class ClientAPI {
     }
   }
 
+  async handleverifyTaskWithHash(prs) {
+    const { address, taskId, txHash } = prs;
+    await sleep(3);
+    try {
+      const res = await this.verifyTaskWithHash(prs);
+      if (res.success) {
+        this.log(`Verify task ${taskId} (Tx: ${txHash}) success!`, "success");
+      } else {
+        this.log(`Verify task ${taskId} (Tx: ${txHash}) failed! | ${JSON.stringify(res)}`, "warning");
+      }
+    } catch (error) {
+      this.log(`handle onchain task failed! ${error.message}`, "warning");
+    }
+  }
+
   async connectRPC() {
     this.provider = new ethers.JsonRpcProvider(settings.RPC_URL, {
       chainId: Number(settings.CHAIN_ID),
@@ -455,9 +507,12 @@ class ClientAPI {
           const resSend = await sendToken({ ...prams, recipientAddress, amount });
           if (resSend.success) {
             this.log(resSend.message, "success");
+            await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
           } else {
             this.log(resSend.message, "warning");
-            break;
+            if (result?.stop) {
+              break;
+            }
           }
         }
         current--;
@@ -470,31 +525,38 @@ class ClientAPI {
     }
 
     //swap
-    if (settings.AMOUNT_SWAP) {
+    if (settings.AUTO_SWAP) {
       let limit = settings.NUMBER_SWAP;
       let current = limit;
-      let tokenOut = "WPHRS";
-      let tokenIn = "PHRS";
-
       while (current > 0) {
         let amount = getRandomNumber(settings.AMOUNT_SWAP[0], settings.AMOUNT_SWAP[1], 6);
-        this.log(`[${current}/${limit}] Swapping ${amount} ${tokenIn} to ${tokenOut}`);
-        // const result = await swapToken({...prams, amount});
-        const result = await wrapToken({ ...prams, amount, action: "wrap" });
+
+        const result = await swapToken({ ...prams, amount });
 
         if (result.success) {
           this.log(result.message, "success");
         } else {
           this.log(result.message, "warning");
-          break;
+          if (result?.stop) {
+            break;
+          }
         }
         current--;
         if (current > 0) {
           const timesleep = getRandomNumber(settings.DELAY_BETWEEN_REQUESTS[0], settings.DELAY_BETWEEN_REQUESTS[1]);
-          this.log(`Delay ${timesleep}s to next transaction...`);
+          this.log(`[${current}/${limit}] Delay ${timesleep}s to next transaction...`);
           await sleep(timesleep);
         }
       }
+    }
+
+    // liqulity pool
+    if (settings.AMOUNT_ADDLP) {
+      this.log(`Starting add liquidity pool...`);
+      const prsLP = {
+        ...prams,
+      };
+      const result = await performMultipleLPs(prsLP);
     }
   }
 
