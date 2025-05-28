@@ -24,8 +24,8 @@ async function getBaseApi(url) {
   try {
     const response = await axios.get(url);
     const content = response.data;
-    if (content?.monadscore) {
-      return { endpoint: content.monadscore, message: content.copyright };
+    if (content?.pharos) {
+      return { endpoint: content.pharos, message: content.copyright };
     } else {
       return {
         endpoint: null,

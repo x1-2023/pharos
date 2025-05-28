@@ -16,17 +16,6 @@ const WPHRS_ADDRESS = "0x76aaada469d23216be5f7c596fa25f282ff9b364";
 const USDC_ADDRESS = "0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37";
 const USDT_ADDRESS = "0xed59de2d7ad9c043442e381231ee3646fc3c2939";
 
-const SWAP_ROUTER_ABI = [
-  "function multicall(bytes[] calldata data) external payable returns (bytes[] memory results)",
-  "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountOut)",
-  "function exactOutputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountOut, uint256 amountInMaximum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountIn)",
-  "function exactInput(tuple(bytes path, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum)) external payable returns (uint256 amountOut)",
-  "function exactOutput(tuple(bytes path, address recipient, uint256 deadline, uint256 amountOut, uint256 amountInMaximum)) external payable returns (uint256 amountIn)",
-  "function unwrapWETH9(uint256 amountMinimum, address recipient) external payable",
-  "function refundETH() external payable",
-  "function WETH9() external view returns (address)",
-];
-
 const LP_ROUTER_ABI = [
   "function createAndInitializePoolIfNecessary(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) external payable returns (address pool)",
   "function mint(tuple(address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)",
@@ -53,14 +42,6 @@ const ERC20_ABI = [
   "function decimals() view returns (uint8)",
   "function transfer(address to, uint256 amount) returns (bool)",
 ];
-
-const AMOUNT_IN = ethers.parseEther("0.001");
-const AMOUNT_OUT_MINIMUM = 0n;
-const FEE = 500;
-const MAX_RETRIES = 1;
-const SWAP_ROUNDS = 20;
-const FINAL_SWAP_PERCENTAGE = 40;
-const LP_ROUNDS = 10;
 
 async function getTokenDecimals(tokenAddress, provider) {
   try {
@@ -103,7 +84,6 @@ async function findExistingPosition({ token0, token1, fee, positionManager, wall
     const balance = await positionManager.balanceOf(wallet.address);
 
     if (balance == 0n) {
-      console.log("No balance");
       return null;
     }
 
@@ -297,6 +277,7 @@ async function performMultipleLPs(prams) {
     let amount1PerLP = totalAmount1ForLP / BigInt(lpCount);
 
     let successCount = 0;
+    let successHash = [];
 
     for (let i = 0; i < lpCount; i++) {
       try {
@@ -313,6 +294,7 @@ async function performMultipleLPs(prams) {
         if (result.success) {
           console.log(`[${i + 1}/${lpCount}] ${result.message}`.green);
           successCount++;
+          successHash.push(result.tx);
         } else {
           console.log(result.message);
           amount0PerLP = (amount0PerLP * 8n) / 10n;
@@ -329,10 +311,9 @@ async function performMultipleLPs(prams) {
       }
     }
 
-    return successCount > 0;
+    return successHash;
   } catch (error) {
-    // console.log(error.message);
-    return false;
+    return [];
   }
 }
 

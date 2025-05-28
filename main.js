@@ -183,8 +183,6 @@ class ClientAPI {
 
     do {
       try {
-        // const requestData = method.toLowerCase() !== "get" ? data : undefined;
-
         const response = await axios({
           method,
           url: `${url}`,
@@ -193,7 +191,7 @@ class ClientAPI {
           ...(proxyAgent ? { httpsAgent: proxyAgent, httpAgent: proxyAgent } : {}),
           ...(method.toLowerCase() !== "get" ? { data: data } : {}),
         });
-        if (response?.data?.code == 0 || response?.data?.msg == "ok") {
+        if (response?.data?.code == 0 || response?.data?.msg == "ok" || response?.data?.message == "ok") {
           if (response?.data?.data) return { status: response.status, success: true, data: response.data.data };
           return { success: true, data: response.data, status: response.status };
         } else {
@@ -207,7 +205,7 @@ class ClientAPI {
         if (error.status === 401) {
           const token = await this.getValidToken(true);
           if (!token) {
-            process.exit(1);
+            return { success: false, data: null, error: "UnAuth", status: 401 };
           }
           this.token = token;
           return this.makeRequest(url, method, data, options);
@@ -226,6 +224,7 @@ class ClientAPI {
           return { status: error.status, success: false, error: errorMessage, data: null };
         }
       }
+      await sleep(5);
     } while (currRetries <= retries);
 
     return { status: errorStatus, success: false, error: errorMessage, data: null };
@@ -334,41 +333,55 @@ class ClientAPI {
     return null;
   }
 
-  async handleFaucet() {
-    const resGet = await this.getFaucetStatus();
-    if (resGet.data?.is_able_to_faucet) {
-      const res = await this.faucet();
-      if (res.success) {
-        this.log(`Faucet success!`, "success");
+  async handleFaucet(userData) {
+    if (settings.AUTO_FAUCET_STABLE_COIN) {
+      const token = getRandomElement(settings.TOKENS_FAUCET);
+      this.log(`Solving captcha...`);
+      const captchaToken = await solveCaptcha({
+        websiteKey: "0x4AAAAAABesmP1SWw2G_ear",
+        websiteURL: "https://testnet.zenithswap.xyz/faucet",
+      });
+      if (!captchaToken) {
+        this.log(`Can't get captcha token...`, "warning");
       } else {
-        this.log(`Faucet failed: ${JSON.stringify(res)}`, "warning");
-      }
-    } else {
-      if (resGet.data?.avaliable_timestamp) {
-        this.log(`Next Faucet: ${new Date(resGet.data?.avaliable_timestamp * 1000).toLocaleString()}`, "warning");
-      } else {
-        this.log(`Unavaliable Faucet: ${JSON.stringify(resGet)}`, "warning");
+        this.log(`Fauceting ${token}...`);
+        const res = await this.faucetTokens({
+          // tokenAddress: TOKEN_ADDRESSES[token],
+          // userAddress: this.itemData.address,
+          CFTurnstileResponse: captchaToken,
+        });
+        if (res.success && res.data?.txHash) {
+          this.log(`Faucet ${token} success!`, "success");
+        } else {
+          this.log(`Faucet ${token} failed: ${JSON.stringify(res)}`, "warning");
+        }
       }
     }
 
-    if (settings.AUTO_FAUCET_STABLE_COIN) {
-      const token = getRandomElement(settings.TOKENS_FAUCET);
-      this.log(`Fauceting ${token}...`);
-      const res = await this.faucetTokens({
-        tokenAddress: TOKEN_ADDRESSES[token],
-        userAddress: this.itemData.address,
-      });
-      if (res.success && res.data?.txHash) {
-        this.log(`Faucet ${token} success!`, "success");
+    if (settings.AUTO_FAUCET) {
+      const XId = userData.user_info.XId;
+      if (!XId) return this.log(`You need bind X/twitter to faucet!`, "warning");
+      const resGet = await this.getFaucetStatus();
+      if (resGet.data?.is_able_to_faucet) {
+        const res = await this.faucet();
+        if (res.success) {
+          this.log(`Faucet success!`, "success");
+        } else {
+          this.log(`Faucet failed: ${JSON.stringify(res)}`, "warning");
+        }
       } else {
-        this.log(`Faucet ${token} failed: ${JSON.stringify(res)}`, "warning");
+        if (resGet.data?.avaliable_timestamp) {
+          this.log(`Next Faucet: ${new Date(resGet.data?.avaliable_timestamp * 1000).toLocaleString()}`, "warning");
+        } else {
+          this.log(`Unavaliable Faucet: ${JSON.stringify(resGet)}`, "warning");
+        }
       }
     }
   }
 
   checkInStatus(checkInArray) {
     const today = new Date();
-    const dayOfWeek = today.getDay();
+    const dayOfWeek = today.getUTCDay();
 
     const index = (dayOfWeek + 6) % 7;
 
@@ -470,7 +483,7 @@ class ClientAPI {
 
   async handleverifyTaskWithHash(prs) {
     const { address, taskId, txHash } = prs;
-    await sleep(3);
+    await sleep(10);
     try {
       const res = await this.verifyTaskWithHash(prs);
       if (res.success) {
@@ -485,9 +498,12 @@ class ClientAPI {
 
   async connectRPC() {
     this.provider = new ethers.JsonRpcProvider(settings.RPC_URL, {
+      fetch: (url, options) => {
+        if (settings.USE_PROXY) options.agent = new HttpsProxyAgent(this.proxy);
+        return fetch(url, options);
+      },
       chainId: Number(settings.CHAIN_ID),
       name: "Pharos Testnet",
-      ...(settings.USE_PROXY ? { agent: new HttpsProxyAgent(this.proxy) } : {}),
     });
   }
   async handleOnchain() {
@@ -504,15 +520,19 @@ class ClientAPI {
         if (recipientAddress && recipientAddress !== this.wallet.address) {
           let amount = getRandomNumber(settings.AMOUNT_SEND[0], settings.AMOUNT_SEND[1], 4);
           this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${recipientAddress}`);
-          const resSend = await sendToken({ ...prams, recipientAddress, amount });
-          if (resSend.success) {
-            this.log(resSend.message, "success");
-            await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
-          } else {
-            this.log(resSend.message, "warning");
-            if (result?.stop) {
-              break;
+          try {
+            const resSend = await sendToken({ ...prams, recipientAddress, amount });
+            if (resSend.success) {
+              this.log(resSend.message, "success");
+              await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
+            } else {
+              this.log(resSend.message, "warning");
+              if (resSend?.stop) {
+                break;
+              }
             }
+          } catch (error) {
+            this.log(`Err send token: ${error.message}`, "warning");
           }
         }
         current--;
@@ -530,16 +550,20 @@ class ClientAPI {
       let current = limit;
       while (current > 0) {
         let amount = getRandomNumber(settings.AMOUNT_SWAP[0], settings.AMOUNT_SWAP[1], 6);
+        try {
+          const result = await swapToken({ ...prams, amount });
 
-        const result = await swapToken({ ...prams, amount });
-
-        if (result.success) {
-          this.log(result.message, "success");
-        } else {
-          this.log(result.message, "warning");
-          if (result?.stop) {
-            break;
+          if (result.success) {
+            this.log(result.message, "success");
+            // await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 101, txHash: result.tx });
+          } else {
+            this.log(result.message, "warning");
+            if (result?.stop) {
+              break;
+            }
           }
+        } catch (error) {
+          this.log(`Err swap token: ${error.message}`, "warning");
         }
         current--;
         if (current > 0) {
@@ -551,12 +575,22 @@ class ClientAPI {
     }
 
     // liqulity pool
-    if (settings.AMOUNT_ADDLP) {
+    if (settings.AUTO_ADDLP) {
       this.log(`Starting add liquidity pool...`);
       const prsLP = {
         ...prams,
       };
-      const result = await performMultipleLPs(prsLP);
+      try {
+        const result = await performMultipleLPs(prsLP);
+        // if (result && result?.length > 0) {
+        //   for (const tx of result) {
+        //     await sleep(3);
+        //     await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 102, txHash: tx });
+        //   }
+        // }
+      } catch (error) {
+        this.log(`Err add liquility: ${error.message}`, "warning");
+      }
     }
   }
 
@@ -573,20 +607,18 @@ class ClientAPI {
         this.log(`Cannot check proxy IP: ${error.message}`, "error");
         return;
       }
-      const timesleep = getRandomNumber(settings.DELAY_START_BOT[0], settings.DELAY_START_BOT[1]);
-      console.log(`=========Tài khoản ${accountIndex + 1} | ${this.proxyIP} | Bắt đầu sau ${timesleep} giây...`.green);
-      await sleep(timesleep);
     }
+    const timesleep = getRandomNumber(settings.DELAY_START_BOT[0], settings.DELAY_START_BOT[1]);
+    console.log(`=========Tài khoản ${accountIndex + 1} | ${this.proxyIP || "Local IP"} | Bắt đầu sau ${timesleep} giây...`.green);
+    await sleep(timesleep);
 
     const token = await this.getValidToken();
     if (!token) return;
     this.token = token;
     await this.connectRPC();
     const userData = await this.handleSyncData();
-    if (userData.success) {
-      if (settings.AUTO_FAUCET) {
-        await this.handleFaucet();
-      }
+    if (userData?.success) {
+      await this.handleFaucet(userData.data);
       await sleep(1);
       await this.handleCheckin();
       await sleep(1);
@@ -595,23 +627,6 @@ class ClientAPI {
       await this.handleOnchain();
     } else {
       return this.log("Can't get use info...skipping", "error");
-    }
-  }
-}
-
-async function runWorker(workerData) {
-  const { itemData, accountIndex, proxy, hasIDAPI } = workerData;
-  const to = new ClientAPI(itemData, accountIndex, proxy, hasIDAPI);
-  try {
-    await Promise.race([to.runAccount(), new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 24 * 60 * 60 * 1000))]);
-    parentPort.postMessage({
-      accountIndex,
-    });
-  } catch (error) {
-    parentPort.postMessage({ accountIndex, error: error.message });
-  } finally {
-    if (!isMainThread) {
-      parentPort.postMessage("taskComplete");
     }
   }
 }
@@ -649,73 +664,24 @@ async function main() {
   });
   await sleep(1);
   while (true) {
-    let currentIndex = 0;
-    const errors = [];
-    while (currentIndex < data.length) {
-      const workerPromises = [];
-      const batchSize = Math.min(maxThreads, data.length - currentIndex);
-      for (let i = 0; i < batchSize; i++) {
-        const worker = new Worker(__filename, {
-          workerData: {
-            hasIDAPI: resCheck.endpoint,
-            itemData: data[currentIndex],
-            accountIndex: currentIndex,
-            proxy: proxies[currentIndex % proxies.length],
-          },
-        });
-
-        workerPromises.push(
-          new Promise((resolve) => {
-            worker.on("message", (message) => {
-              if (message === "taskComplete") {
-                worker.terminate();
-              }
-              if (settings.ENABLE_DEBUG) {
-                console.log(message);
-              }
-              resolve();
-            });
-            worker.on("error", (error) => {
-              console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
-              worker.terminate();
-              resolve();
-            });
-            worker.on("exit", (code) => {
-              worker.terminate();
-              if (code !== 0) {
-                errors.push(`Worker cho tài khoản ${currentIndex} thoát với mã: ${code}`);
-              }
-              resolve();
-            });
-          })
-        );
-
-        currentIndex++;
-      }
-
-      await Promise.all(workerPromises);
-
-      if (errors.length > 0) {
-        errors.length = 0;
-      }
-
-      if (currentIndex < data.length) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-      }
+    await sleep(2);
+    for (let i = 0; i < data.length; i += maxThreads) {
+      const batch = data.slice(i, i + maxThreads);
+      const promises = batch.map(async (itemData, indexInBatch) => {
+        const accountIndex = i + indexInBatch;
+        const proxy = proxies[accountIndex] || null;
+        const client = new ClientAPI(itemData, accountIndex, proxy, resCheck.endpoint);
+        return client.runAccount();
+      });
+      await Promise.all(promises);
     }
-
     await sleep(3);
     console.log(`=============${new Date().toLocaleString()} | Hoàn thành tất cả tài khoản | Chờ ${settings.TIME_SLEEP} phút=============`.magenta);
     showBanner();
     await sleep(settings.TIME_SLEEP * 60);
   }
 }
-
-if (isMainThread) {
-  main().catch((error) => {
-    console.log("Lỗi rồi:", error);
-    process.exit(1);
-  });
-} else {
-  runWorker(workerData);
-}
+main().catch((err) => {
+  console.error(`Error BOT: ${err.message}`);
+  process.exit(1);
+});

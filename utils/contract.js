@@ -191,129 +191,129 @@ async function findExistingPosition({ token0, token1, fee, positionManager, wall
   }
 }
 
-async function addLp(params) {
-  let { wallet, amount0, amount1, provider } = params;
-  let poolAddress = USDC_POOL_ADDRESS;
-  const token0 = WPHRS_ADDRESS;
-  const token1 = USDC_ADDRESS;
-  try {
-    const decimals0 = await getTokenDecimals(token0);
-    const decimals1 = await getTokenDecimals(token1);
-    const amount0Desired = ethers.parseUnits(amount0.toString(), decimals0);
-    const amount1Desired = ethers.parseUnits(amount1.toString(), decimals1);
-    const positionManager = new ethers.Contract(POSITIONMANAGER_ADDRESS, POSITION_MANAGER_ABI, wallet);
-    const pool = new ethers.Contract(poolAddress, POOL_ABI, provider);
-    const actualToken0 = await pool.token0();
-    const actualToken1 = await pool.token1();
-    let sortedAmount0, sortedAmount1;
-    if (token0.toLowerCase() === actualToken0.toLowerCase()) {
-      sortedAmount0 = amount0;
-      sortedAmount1 = amount1;
-    } else {
-      sortedAmount0 = amount1;
-      sortedAmount1 = amount0;
-    }
+// async function addLp(params) {
+//   let { wallet, amount0, amount1, provider } = params;
+//   let poolAddress = USDC_POOL_ADDRESS;
+//   const token0 = WPHRS_ADDRESS;
+//   const token1 = USDC_ADDRESS;
+//   try {
+//     const decimals0 = await getTokenDecimals(token0);
+//     const decimals1 = await getTokenDecimals(token1);
+//     const amount0Desired = ethers.parseUnits(amount0.toString(), decimals0);
+//     const amount1Desired = ethers.parseUnits(amount1.toString(), decimals1);
+//     const positionManager = new ethers.Contract(POSITIONMANAGER_ADDRESS, POSITION_MANAGER_ABI, wallet);
+//     const pool = new ethers.Contract(poolAddress, POOL_ABI, provider);
+//     const actualToken0 = await pool.token0();
+//     const actualToken1 = await pool.token1();
+//     let sortedAmount0, sortedAmount1;
+//     if (token0.toLowerCase() === actualToken0.toLowerCase()) {
+//       sortedAmount0 = amount0;
+//       sortedAmount1 = amount1;
+//     } else {
+//       sortedAmount0 = amount1;
+//       sortedAmount1 = amount0;
+//     }
 
-    const slot0 = await pool.slot0();
-    const currentTick = Number(slot0.tick);
+//     const slot0 = await pool.slot0();
+//     const currentTick = Number(slot0.tick);
 
-    const tickLower = -887270;
-    const tickUpper = 887270;
-    const resCheckBalance0 = await approveToken({ tokenAddress: actualToken0, spenderAddress: POSITIONMANAGER_ADDRESS, amount: sortedAmount0, wallet });
-    if (!resCheckBalance0.success) {
-      return {
-        tx: null,
-        success: false,
-        stop: false,
-        message: resCheckBalance0.message,
-      };
-    }
-    const resCheckBalance1 = await approveToken({ tokenAddress: actualToken1, spenderAddress: POSITIONMANAGER_ADDRESS, amount: sortedAmount1, wallet });
+//     const tickLower = -887270;
+//     const tickUpper = 887270;
+//     const resCheckBalance0 = await approveToken({ tokenAddress: actualToken0, spenderAddress: POSITIONMANAGER_ADDRESS, amount: sortedAmount0, wallet });
+//     if (!resCheckBalance0.success) {
+//       return {
+//         tx: null,
+//         success: false,
+//         stop: false,
+//         message: resCheckBalance0.message,
+//       };
+//     }
+//     const resCheckBalance1 = await approveToken({ tokenAddress: actualToken1, spenderAddress: POSITIONMANAGER_ADDRESS, amount: sortedAmount1, wallet });
 
-    if (!resCheckBalance1.success) {
-      return {
-        tx: null,
-        success: false,
-        stop: false,
-        message: resCheckBalance1.message,
-      };
-    }
+//     if (!resCheckBalance1.success) {
+//       return {
+//         tx: null,
+//         success: false,
+//         stop: false,
+//         message: resCheckBalance1.message,
+//       };
+//     }
 
-    // Check for existing position
-    const existingPosition = await findExistingPosition({ token0, token1, fee: 500, poolAddress: USDC_POOL_ADDRESS, positionManager, decimals0, decimals1, wallet });
-    console.log(existingPosition);
-    let tx;
+//     // Check for existing position
+//     const existingPosition = await findExistingPosition({ token0, token1, fee: 500, poolAddress: USDC_POOL_ADDRESS, positionManager, decimals0, decimals1, wallet });
+//     console.log(existingPosition);
+//     let tx;
 
-    const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
-    const amount0Min = 0n;
-    const amount1Min = 0n;
+//     const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
+//     const amount0Min = 0n;
+//     const amount1Min = 0n;
 
-    if (existingPosition) {
-      const params = {
-        tokenId: existingPosition.tokenId,
-        amount0Desired,
-        amount1Desired,
-        amount0Min,
-        amount1Min,
-        deadline,
-      };
+//     if (existingPosition) {
+//       const params = {
+//         tokenId: existingPosition.tokenId,
+//         amount0Desired,
+//         amount1Desired,
+//         amount0Min,
+//         amount1Min,
+//         deadline,
+//       };
 
-      tx = await positionManager.increaseLiquidity(
-        params,
-        { gasLimit: 800000 } // Increased gas limit
-      );
-    } else {
-      const mintParams = {
-        token0: actualToken0,
-        token1: actualToken1,
-        fee: 500, // Verify this (500 = 0.05%)
-        tickLower,
-        tickUpper,
-        amount0Desired,
-        amount1Desired,
-        amount0Min,
-        amount1Min,
-        recipient: wallet.address,
-        deadline,
-      };
+//       tx = await positionManager.increaseLiquidity(
+//         params,
+//         { gasLimit: 800000 } // Increased gas limit
+//       );
+//     } else {
+//       const mintParams = {
+//         token0: actualToken0,
+//         token1: actualToken1,
+//         fee: 500, // Verify this (500 = 0.05%)
+//         tickLower,
+//         tickUpper,
+//         amount0Desired,
+//         amount1Desired,
+//         amount0Min,
+//         amount1Min,
+//         recipient: wallet.address,
+//         deadline,
+//       };
 
-      let gasLimit;
-      try {
-        gasLimit = await positionManager.mint.estimateGas(params);
-        gasLimit = (gasLimit * 200n) / 100n;
-      } catch (gasError) {
-        gasLimit = 5000000n;
-      }
+//       let gasLimit;
+//       try {
+//         gasLimit = await positionManager.mint.estimateGas(params);
+//         gasLimit = (gasLimit * 200n) / 100n;
+//       } catch (gasError) {
+//         gasLimit = 5000000n;
+//       }
 
-      tx = await positionManager.mint(
-        mintParams,
-        { gasLimit } // Increased gas limit
-      );
-      // const mintData = positionManager.interface.encodeFunctionData("mint", [mintParams]);
-      // const refundData = positionManager.interface.encodeFunctionData("refundETH", []);
-      // const multicallData = [mintData, refundData];
-      // tx = await positionManager.multicall(multicallData, {
-      //   value: amount0Desired,
-      //   gasLimit: 1000000,
-      // });
-    }
+//       tx = await positionManager.mint(
+//         mintParams,
+//         { gasLimit } // Increased gas limit
+//       );
+//       // const mintData = positionManager.interface.encodeFunctionData("mint", [mintParams]);
+//       // const refundData = positionManager.interface.encodeFunctionData("refundETH", []);
+//       // const multicallData = [mintData, refundData];
+//       // tx = await positionManager.multicall(multicallData, {
+//       //   value: amount0Desired,
+//       //   gasLimit: 1000000,
+//       // });
+//     }
 
-    await tx.wait();
-    return {
-      tx: tx.hash,
-      success: true,
-      message: `Add liquidity transaction confirmed: ${EXPOLER}/${tx.hash}`,
-    };
-  } catch (error) {
-    let message = `Error addlp: ${error?.shortMessage || error.message}`;
-    return {
-      tx: null,
-      success: false,
-      stop: false,
-      message: message,
-    };
-  }
-}
+//     await tx.wait();
+//     return {
+//       tx: tx.hash,
+//       success: true,
+//       message: `Add liquidity transaction confirmed: ${EXPOLER}/${tx.hash}`,
+//     };
+//   } catch (error) {
+//     let message = `Error addlp: ${error?.shortMessage || error.message}`;
+//     return {
+//       tx: null,
+//       success: false,
+//       stop: false,
+//       message: message,
+//     };
+//   }
+// }
 
 async function swapToken(params) {
   const { amount: amountIn, provider, wallet, pairsInit } = params;
@@ -368,8 +368,7 @@ async function swapToken(params) {
 
     const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
     const exactInputSingleFunctionSelector = "0x04e45aaf";
-    const maxFeePerGas = ethers.parseUnits("1.2", "gwei");
-    const maxPriorityFeePerGas = ethers.parseUnits("1.2", "gwei");
+
     const value = ethers.parseEther(amount);
 
     try {
@@ -401,15 +400,26 @@ async function swapToken(params) {
       const multicallAbi = ["function multicall(uint256 deadline, bytes[] calldata data) payable"];
       const contract = new ethers.Contract(SWAP_ROUTER_ADDRESS, multicallAbi, wallet);
       const multicallData = contract.interface.encodeFunctionData("multicall", [deadline, [exactInputSingleData]]);
+      const feeData = await provider.getFeeData();
+      const gasPrice = feeData.gasPrice || ethers.parseUnits("1", "gwei");
+      let estimatedGas;
+      try {
+        estimatedGas = await contract.multicall.estimateGas(deadline, multicallData, {
+          from: wallet.address,
+        });
+      } catch (error) {
+        estimatedGas = 300000;
+      }
 
       const txParams = {
         to: SWAP_ROUTER_ADDRESS,
         from: wallet.address,
         value: value,
         data: multicallData,
-        maxFeePerGas,
-        maxPriorityFeePerGas,
-        gasLimit: 300000,
+        gasLimit: Math.ceil(Number(estimatedGas) * 1.2),
+        gasPrice,
+        maxFeePerGas: feeData.maxFeePerGas || undefined,
+        maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || undefined,
       };
 
       let tx = await wallet.sendTransaction(txParams);
@@ -524,11 +534,17 @@ async function sendToken({ recipientAddress, amount, wallet, provider }) {
         message: `Insufficient PHRS. Need at least ${ethers.formatEther(minBalance)} PHRS, have ${ethers.formatEther(balance)} PHRS.`,
       };
     }
-
+    const feeData = await provider.getFeeData();
+    const gasPrice = feeData.gasPrice || ethers.parseUnits("1", "gwei");
+    const nonce = await provider.getTransactionCount(wallet.address, "pending");
     const tx = await wallet.sendTransaction({
       to: recipientAddress,
       value: amountIn,
       gasLimit: 21000,
+      gasPrice,
+      nonce,
+      maxFeePerGas: feeData.maxFeePerGas || undefined,
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || undefined,
     });
     await tx.wait();
 
@@ -547,4 +563,4 @@ async function sendToken({ recipientAddress, amount, wallet, provider }) {
   }
 }
 
-module.exports = { sendToken, checkBalance, swapToken, wrapToken, addLp };
+module.exports = { sendToken, checkBalance, swapToken, wrapToken };
