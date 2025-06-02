@@ -744,13 +744,13 @@ async function main() {
               resolve();
             });
             worker.on("error", (error) => {
-              console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
+              // console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
               worker.terminate();
               resolve();
             });
             worker.on("exit", (code) => {
               worker.terminate();
-              console.log(`Worker thoát ${currentIndex}: ${code}`);
+              // console.log(`Worker thoát ${currentIndex}: ${code}`);
               resolve();
             });
           })

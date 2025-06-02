@@ -71,8 +71,8 @@ class AddLpService {
   }
 
   async approveToken(tokenAddress, spenderAddress, amount, wallet) {
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
     try {
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
       const currentAllowance = await tokenContract.allowance(wallet.address, spenderAddress);
       if (currentAllowance >= amount) {
         return true;

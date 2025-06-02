@@ -54,9 +54,9 @@ class SwapService {
   checkBalanceAndApproval = async (tokenAddress, amount, decimals, spender) => {
     const wallet = this.wallet;
     const provider = this.provider;
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
     try {
       const symbol = Object.entries(tokens).find((item) => item[1] === tokenAddress)[0];
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
       const balance = await tokenContract.balanceOf(wallet.address);
       const required = ethers.parseUnits(amount.toString(), decimals);
 
@@ -71,10 +71,8 @@ class SwapService {
 
       const allowance = await tokenContract.allowance(wallet.address, spender);
       if (allowance < required) {
-        this.log(`Approving ${amount} ${symbol}...`.blue);
         const approveTx = await tokenContract.approve(spender, required);
         await approveTx.wait();
-        this.log(`Approval completed`.green);
       }
 
       return {
@@ -209,7 +207,7 @@ class SwapService {
           success: true,
           message: `Swap ${amount} ${pair.from} to ${pair.to} success: ${EXPOLER}${tx.hash}`,
         };
-      } catch (swapError) {
+      } catch (error) {
         if (error.code === "NONCE_EXPIRED" || error.message.includes("TX_REPLAY_ATTACK")) {
           return {
             tx: null,
@@ -222,7 +220,7 @@ class SwapService {
           tx: null,
           success: false,
           stop: false,
-          message: `Swap ${amount} ${pair.from} to ${pair.to} failed for: ${swapError.message}`,
+          message: `Swap ${amount} ${pair.from} to ${pair.to} failed for: ${error.message}`,
         };
       }
     } catch (error) {
