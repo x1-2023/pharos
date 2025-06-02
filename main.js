@@ -14,13 +14,13 @@ const { showBanner } = require("./core/banner.js");
 const localStorage = require("./localStorage.json");
 const ethers = require("ethers");
 const { solveCaptcha } = require("./utils/captcha.js");
-const { sendToken, checkBalance, swapToken, wrapToken, addLp } = require("./utils/contract.js");
-const { TOKEN_ADDRESSES } = require("./utils/constants.js");
-const { performMultipleLPs } = require("./utils/liqulity.js");
+const { checkBalance } = require("./utils/contract.js");
+const { AddLpService } = require("./utils/liqulity.js");
 const wallets = loadData("wallets.txt");
-
+const TransferService = require("./utils/transfer.js");
+const MintService = require("./utils/mint.js");
+const SwapService = require("./utils/swap.js");
 // const querystring = require("querystring");
-let REF_CODE = settings.REF_CODE;
 class ClientAPI {
   constructor(itemData, accountIndex, proxy, baseURL) {
     this.headers = headers;
@@ -35,7 +35,10 @@ class ClientAPI {
     this.session_user_agents = this.#load_session_data();
     this.token = null;
     this.localStorage = localStorage;
-    this.provider = new ethers.JsonRpcProvider(settings.RPC_URL);
+    this.provider = new ethers.JsonRpcProvider(settings.RPC_URL, {
+      chainId: Number(settings.CHAIN_ID),
+      name: "Pharos Testnet",
+    });
     this.wallet = new ethers.Wallet(this.itemData.privateKey, this.provider);
   }
 
@@ -62,8 +65,6 @@ class ClientAPI {
     if (this.session_user_agents[this.session_name]) {
       return this.session_user_agents[this.session_name];
     }
-
-    console.log(`[Tài khoản ${this.accountIndex + 1}] Tạo user agent...`.blue);
     const newUserAgent = this.#get_random_user_agent();
     this.session_user_agents[this.session_name] = newUserAgent;
     this.#save_session_data(this.session_user_agents);
@@ -505,6 +506,7 @@ class ClientAPI {
       chainId: Number(settings.CHAIN_ID),
       name: "Pharos Testnet",
     });
+    this.wallet = new ethers.Wallet(this.itemData.privateKey, this.provider);
   }
   async handleOnchain() {
     const prams = {
@@ -513,6 +515,7 @@ class ClientAPI {
       provider: this.provider,
     };
     if (settings.AUTO_SEND) {
+      const transferService = new TransferService(prams);
       let limit = settings.NUMBER_SEND;
       let current = limit;
       while (current > 0) {
@@ -521,7 +524,7 @@ class ClientAPI {
           let amount = getRandomNumber(settings.AMOUNT_SEND[0], settings.AMOUNT_SEND[1], 4);
           this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${recipientAddress}`);
           try {
-            const resSend = await sendToken({ ...prams, recipientAddress, amount });
+            const resSend = await transferService.sendToken({ recipientAddress, amount });
             if (resSend.success) {
               this.log(resSend.message, "success");
               await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
@@ -544,14 +547,44 @@ class ClientAPI {
       }
     }
 
+    //mint
+    if (settings.AUTO_MINT) {
+      const mintService = new MintService(prams);
+      let limit = settings.NUMBER_MINT;
+      let current = limit;
+      while (current > 0) {
+        this.log(`[${current}/${limit}] Minting NFT...`);
+        try {
+          const result = await mintService.mintGotChip();
+          if (result.success) {
+            this.log(result.message, "success");
+          } else {
+            this.log(result.message, "warning");
+            if (result?.stop) {
+              break;
+            }
+          }
+        } catch (error) {
+          this.log(`Err mint: ${error.message}`, "warning");
+        }
+        current--;
+        if (current > 0) {
+          const timesleep = getRandomNumber(settings.DELAY_BETWEEN_REQUESTS[0], settings.DELAY_BETWEEN_REQUESTS[1]);
+          this.log(`Delay ${timesleep}s to next transaction...`);
+          await sleep(timesleep);
+        }
+      }
+    }
+
     //swap
     if (settings.AUTO_SWAP) {
+      const sw = new SwapService({ ...prams, log: (mess, type) => this.log(mess, type) });
       let limit = settings.NUMBER_SWAP;
       let current = limit;
       while (current > 0) {
         let amount = getRandomNumber(settings.AMOUNT_SWAP[0], settings.AMOUNT_SWAP[1], 6);
         try {
-          const result = await swapToken({ ...prams, amount });
+          const result = await sw.swapToken({ ...prams, amount });
 
           if (result.success) {
             this.log(result.message, "success");
@@ -580,8 +613,10 @@ class ClientAPI {
       const prsLP = {
         ...prams,
       };
+      const addlp = new AddLpService({ ...prams, log: (mess, type) => this.log(mess, type) });
+
       try {
-        const result = await performMultipleLPs(prsLP);
+        const result = await addlp.performMultipleLPs(prsLP);
         // if (result && result?.length > 0) {
         //   for (const tx of result) {
         //     await sleep(3);
@@ -631,6 +666,23 @@ class ClientAPI {
   }
 }
 
+async function runWorker(workerData) {
+  const { itemData, accountIndex, proxy, hasIDAPI } = workerData;
+  const to = new ClientAPI(itemData, accountIndex, proxy, hasIDAPI);
+  try {
+    await Promise.race([to.runAccount(), new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 24 * 60 * 60 * 1000))]);
+    parentPort.postMessage({
+      accountIndex,
+    });
+  } catch (error) {
+    parentPort.postMessage({ accountIndex, error: error.message });
+  } finally {
+    if (!isMainThread) {
+      parentPort.postMessage("taskComplete");
+    }
+  }
+}
+
 async function main() {
   console.clear();
   showBanner();
@@ -652,6 +704,7 @@ async function main() {
   if (!resCheck.endpoint) return console.log(`Không thể tìm thấy ID API, có thể lỗi kết nỗi, thử lại sau!`.red);
   console.log(`${resCheck.message}`.yellow);
 
+  console.log(`Initing data...`.blue);
   const data = privateKeys.map((val, index) => {
     const prvk = val.startsWith("0x") ? val : `0x${val}`;
     const wallet = new ethers.Wallet(prvk);
@@ -664,24 +717,67 @@ async function main() {
   });
   await sleep(1);
   while (true) {
-    await sleep(2);
-    for (let i = 0; i < data.length; i += maxThreads) {
-      const batch = data.slice(i, i + maxThreads);
-      const promises = batch.map(async (itemData, indexInBatch) => {
-        const accountIndex = i + indexInBatch;
-        const proxy = proxies[accountIndex] || null;
-        const client = new ClientAPI(itemData, accountIndex, proxy, resCheck.endpoint);
-        return client.runAccount();
-      });
-      await Promise.all(promises);
+    let currentIndex = 0;
+    const errors = [];
+    while (currentIndex < data.length) {
+      const workerPromises = [];
+      const batchSize = Math.min(maxThreads, data.length - currentIndex);
+      for (let i = 0; i < batchSize; i++) {
+        const worker = new Worker(__filename, {
+          workerData: {
+            hasIDAPI: resCheck.endpoint,
+            itemData: data[currentIndex],
+            accountIndex: currentIndex,
+            proxy: proxies[currentIndex % proxies.length],
+          },
+        });
+
+        workerPromises.push(
+          new Promise((resolve) => {
+            worker.on("message", (message) => {
+              if (message === "taskComplete") {
+                worker.terminate();
+              }
+              if (settings.ENABLE_DEBUG) {
+                console.log(message);
+              }
+              resolve();
+            });
+            worker.on("error", (error) => {
+              console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
+              worker.terminate();
+              resolve();
+            });
+            worker.on("exit", (code) => {
+              worker.terminate();
+              console.log(`Worker thoát ${currentIndex}: ${code}`);
+              resolve();
+            });
+          })
+        );
+
+        currentIndex++;
+      }
+
+      await Promise.all(workerPromises);
+
+      if (errors.length > 0) {
+        errors.length = 0;
+      }
     }
+
     await sleep(3);
     console.log(`=============${new Date().toLocaleString()} | Hoàn thành tất cả tài khoản | Chờ ${settings.TIME_SLEEP} phút=============`.magenta);
     showBanner();
     await sleep(settings.TIME_SLEEP * 60);
   }
 }
-main().catch((err) => {
-  console.error(`Error BOT: ${err.message}`);
-  process.exit(1);
-});
+
+if (isMainThread) {
+  main().catch((error) => {
+    console.log("Lỗi rồi:", error);
+    process.exit(1);
+  });
+} else {
+  runWorker(workerData);
+}

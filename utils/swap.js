@@ -1,306 +1,280 @@
-/**
- * src/services/swap.js - Token swap service
- */
 const { ethers } = require("ethers");
-const { loadConfig } = require("../config");
-const { retry, sleep } = require("../utils/helpers");
-const { TOKEN_ADDRESSES, CONTRACT_ADDRESSES, FEE_TIERS } = require("../utils/constants");
-const { toChecksumAddress } = require("../utils/wallet");
+const settings = require("../config/config");
+const { getRandomNumber } = require("./utils");
 
-// Load configuration
-const config = loadConfig();
+const EXPOLER = "https://testnet.pharosscan.xyz/tx/";
+const CHAIN_ID = 688688;
 
-// ERC20 ABI for token approvals
-const ERC20_ABI = ["function approve(address spender, uint256 amount) external returns (bool)", "function allowance(address owner, address spender) external view returns (uint256)"];
+const WPHRS_ADDRESS = "0x76aaada469d23216be5f7c596fa25f282ff9b364";
+const USDC_ADDRESS = "0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37";
+const USDT_ADDRESS = "0xed59de2d7ad9c043442e381231ee3646fc3c2939";
+const POSITIONMANAGER_ADDRESS = "0xF8a1D4FF0f9b9Af7CE58E1fc1833688F3BFd6115";
+const FACTORY = "0x7CE5b44F2d05babd29caE68557F52ab051265F01";
+const QUOTER = "0x00f2f47d1ed593Cf0AF0074173E9DF95afb0206C";
+const SWAP_ROUTER_ADDRESS = "0x1a4de519154ae51200b0ad7c90f7fac75547888a";
+const USDC_POOL_ADDRESS = "0x0373a059321219745aee4fad8a942cf088be3d0e";
+const USDT_POOL_ADDRESS = "0x70118b6eec45329e0534d849bc3e588bb6752527";
+
+const ERC20_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function approve(address spender, uint256 value) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function transfer(address to, uint amount) returns (bool)",
+  "function deposit() payable returns ()",
+  "function withdraw(uint256 wad) returns ()",
+  "function multicall(uint256, bytes[]) public payable returns (bytes[] memory)",
+  "function exactInputSingle((address,address,uint24,address,uint256,uint256,uint160)) external payable returns (uint256)",
+];
+
+const pairOptions = [
+  { id: 1, from: "WPHRS", to: "USDC" },
+  { id: 2, from: "USDC", to: "WPHRS" },
+  { id: 3, from: "WPHRS", to: "USDT" },
+  { id: 4, from: "USDT", to: "WPHRS" },
+];
+const tokenDecimals = {
+  WPHRS: 18,
+  USDC: 18,
+  USDT: 18,
+};
+
+const tokens = {
+  USDC: "0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37",
+  USDT: "0xed59de2d7ad9c043442e381231ee3646fc3c2939",
+  WPHRS: "0x76aaada469d23216be5f7c596fa25f282ff9b364",
+};
 
 class SwapService {
-  constructor(wallet, logger, walletIndex) {
+  constructor({ wallet, log, provider }) {
     this.wallet = wallet;
-    this.logger = logger;
-    this.walletIndex = walletIndex;
-    this.provider = wallet.provider;
+    this.log = log;
+    this.provider = provider;
   }
 
-  /**
-   * Get current gas price with buffer
-   */
-  async getGasPrice() {
-    // Get current gas price from the network
-    const gasPrice = await this.provider.getGasPrice();
-
-    // Add 20% buffer to ensure transaction goes through
-    const gasPriceWithBuffer = gasPrice.mul(120).div(100);
-
-    return gasPriceWithBuffer;
-  }
-
-  /**
-   * Get EIP-1559 fee data with buffer
-   */
-  async getFeeData() {
+  checkBalanceAndApproval = async (tokenAddress, amount, decimals, spender) => {
+    const wallet = this.wallet;
+    const provider = this.provider;
     try {
-      // Get fee data from provider
-      const feeData = await this.provider.getFeeData();
+      const symbol = Object.entries(tokens).find((item) => item[1] === tokenAddress)[0];
+      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
+      const balance = await tokenContract.balanceOf(wallet.address);
+      const required = ethers.parseUnits(amount.toString(), decimals);
 
-      // Add 20% buffer to maxFeePerGas and maxPriorityFeePerGas
-      const maxFeePerGas = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : ethers.utils.parseUnits("1.2", "gwei");
+      if (balance < required) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: `Insufficient ${symbol} balance: ${ethers.formatUnits(balance, decimals)} < ${amount}`,
+        };
+      }
 
-      const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : ethers.utils.parseUnits("1.2", "gwei");
+      const allowance = await tokenContract.allowance(wallet.address, spender);
+      if (allowance < required) {
+        this.log(`Approving ${amount} ${symbol}...`.blue);
+        const approveTx = await tokenContract.approve(spender, required);
+        await approveTx.wait();
+        this.log(`Approval completed`.green);
+      }
 
-      return { maxFeePerGas, maxPriorityFeePerGas };
-    } catch (error) {
-      this.logger.warn(`Error getting fee data: ${error.message}. Using default values.`, { walletIndex: this.walletIndex });
       return {
-        maxFeePerGas: ethers.utils.parseUnits("1.2", "gwei"),
-        maxPriorityFeePerGas: ethers.utils.parseUnits("1.2", "gwei"),
+        tx: null,
+        success: true,
+        message: `200`,
+      };
+    } catch (error) {
+      if (error.message.includes("TX_REPLAY_ATTACK")) {
+        this.log("Retrying with incremented nonce...");
+        const nonce = (await wallet.provider.getTransactionCount(wallet.address, "latest")) + 1;
+        const tx = await tokenContract.approve(spenderAddress, amount, { nonce });
+        await tx.wait();
+        return true;
+      }
+      return {
+        tx: null,
+        success: false,
+        stop: true,
+        message: `Balance/approval check failed: ${error.message}`,
+      };
+    }
+  };
+
+  getExactInputSingleData({ tokenIn, tokenOut, fee, recipient, amountIn, amountOutMinimum, sqrtPriceLimitX96 }) {
+    return new ethers.Interface([
+      "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) payable returns (uint256 amountOut)",
+    ]).encodeFunctionData("exactInputSingle", [
+      {
+        tokenIn,
+        tokenOut,
+        fee,
+        recipient,
+        amountIn,
+        amountOutMinimum,
+        sqrtPriceLimitX96,
+      },
+    ]);
+  }
+
+  async swapToken(params) {
+    const wallet = this.wallet;
+    const provider = this.provider;
+    const { amount: amountIn, pairsInit } = params;
+    try {
+      const options = pairsInit ? pairsInit : pairOptions;
+      const pair = options[Math.floor(Math.random() * options.length)];
+      const decimals = tokenDecimals[pair.from];
+      const tokenContract = new ethers.Contract(tokens[pair.from], ERC20_ABI, provider);
+
+      const balance = await tokenContract.balanceOf(wallet.address);
+      const amountStableCoinToSwap = ethers.formatUnits((balance * 80n) / 100n, decimals);
+      const amount = pair.from === "WPHRS" ? amountIn.toString() : Number(amountStableCoinToSwap).toFixed(4);
+      const required = ethers.parseUnits(amount.toString(), decimals);
+
+      this.log(`Swapping ${amount} ${pair.from} to ${pair.to}`.blue);
+
+      if (balance < required) {
+        if (pair.from !== "WPHRS") {
+          return await this.swapToken({
+            ...params,
+            pairsInit: [
+              { id: 1, from: "WPHRS", to: "USDC" },
+              { id: 3, from: "WPHRS", to: "USDT" },
+            ],
+          });
+        } else {
+          const balanceNative = await provider.getBalance(wallet.address);
+          if (balanceNative > required) {
+            await this.wrapToken({ ...params, action: "wrap" });
+            return await this.swapToken({
+              ...params,
+            });
+          } else
+            return {
+              tx: null,
+              success: false,
+              stop: false,
+              message: `Insufficient ${pair.from} balance: ${ethers.formatUnits(balance, decimals)} < ${amount}`,
+            };
+        }
+      }
+
+      const res = await this.checkBalanceAndApproval(tokens[pair.from], amount, decimals, SWAP_ROUTER_ADDRESS);
+
+      if (!res.success) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: res.message,
+        };
+      }
+      const value = ethers.parseEther(amount);
+
+      try {
+        const exactInputSingleData = this.getExactInputSingleData({
+          tokenIn: tokens[pair.from],
+          tokenOut: tokens[pair.to],
+          fee: 500,
+          recipient: wallet.address,
+          amountIn: value,
+          amountOutMinimum: 0,
+          sqrtPriceLimitX96: 0,
+        });
+
+        const deadline = Math.floor(Date.now() / 1000) + 600 * 20;
+
+        let gasLimit = 179000;
+        try {
+          gasLimit = await router.multicall.estimateGas(deadline, [exactInputData]);
+          gasLimit = Math.ceil(Number(gasLimit) * 1.2);
+        } catch (e) {}
+
+        const pendingNonce = await provider.getTransactionCount(wallet.address, "pending");
+        const latestNonce = await provider.getTransactionCount(wallet.address, "latest");
+
+        if (pendingNonce > latestNonce) {
+          return {
+            tx: null,
+            success: false,
+            stop: false,
+            message: "There are pending transactions. Please wait for them to be completed.",
+          };
+        }
+        const router = new ethers.Contract(SWAP_ROUTER_ADDRESS, ERC20_ABI, wallet);
+        const tx = await router.multicall(deadline, [exactInputSingleData], { gasLimit });
+        await tx.wait();
+
+        return {
+          tx: tx.hash,
+          success: true,
+          message: `Swap ${amount} ${pair.from} to ${pair.to} success: ${EXPOLER}${tx.hash}`,
+        };
+      } catch (swapError) {
+        if (error.code === "NONCE_EXPIRED" || error.message.includes("TX_REPLAY_ATTACK")) {
+          return {
+            tx: null,
+            success: false,
+            stop: true,
+            message: "Nonce conflict detected. Please retry the transaction.",
+          };
+        }
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: `Swap ${amount} ${pair.from} to ${pair.to} failed for: ${swapError.message}`,
+        };
+      }
+    } catch (error) {
+      return {
+        tx: null,
+        success: false,
+        stop: false,
+        message: `Error swap: ${error.message}`,
       };
     }
   }
 
-  /**
-   * Estimate gas for a transaction
-   */
-  async estimateGas(txParams) {
+  async wrapToken(params) {
+    let { action, amount, wallet, balance } = params;
+    amount = Number(amount) * 2;
     try {
-      const gasEstimate = await this.provider.estimateGas(txParams);
+      if (balance < ethers.parseEther("0.0001")) {
+        return {
+          tx: null,
+          success: false,
+          stop: false,
+          message: `Insufficient PHRS for wrap WPHRS`,
+        };
+      }
 
-      // Add 30% buffer to gas estimate to ensure transaction goes through
-      const gasEstimateWithBuffer = gasEstimate.mul(130).div(100);
+      const contract = new ethers.Contract(WPHRS_ADDRESS, ERC20_ABI, wallet);
 
-      return gasEstimateWithBuffer;
-    } catch (error) {
-      this.logger.warn(`Error estimating gas: ${error.message}. Using default values.`, { walletIndex: this.walletIndex });
+      const amountWei = ethers.parseEther(amount.toString());
+      let tx;
 
-      // Default gas limits based on transaction type
-      if (txParams.value && !txParams.value.isZero()) {
-        return ethers.BigNumber.from(200000); // Native token swap
+      if (action === "wrap") {
+        tx = await contract.deposit({
+          value: amountWei,
+          gasLimit: 44866,
+        });
       } else {
-        return ethers.BigNumber.from(300000); // ERC20 token swap
+        tx = await contract.withdraw(amountWei, {
+          gasLimit: 35116,
+        });
       }
-    }
-  }
-
-  /**
-   * Swap tokens - Supports any token pair
-   */
-  async swap(fromToken, toToken, amount) {
-    this.logger.info(`Swapping ${amount} ${fromToken} to ${toToken}...`, { walletIndex: this.walletIndex });
-
-    try {
-      return await retry(
-        async () => {
-          // Get token addresses with proper checksums
-          const tokenIn = toChecksumAddress(TOKEN_ADDRESSES[fromToken]);
-          const tokenOut = toChecksumAddress(TOKEN_ADDRESSES[toToken]);
-
-          if (!tokenIn || !tokenOut) {
-            throw new Error(`Invalid token pair: ${fromToken}/${toToken}. Available tokens: ${Object.keys(TOKEN_ADDRESSES).join(", ")}`);
-          }
-
-          // Create deadline (20 minutes from now)
-          const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
-
-          // The exact function selector for exactInputSingle
-          const exactInputSingleFunctionSelector = "0x04e45aaf";
-
-          // Parse amount based on whether it's native token or not
-          const amountIn = ethers.utils.parseEther(amount.toString());
-
-          // Get current fee data
-          const { maxFeePerGas, maxPriorityFeePerGas } = await this.getFeeData();
-
-          // Check if approval is needed for ERC20 tokens
-          let tx;
-
-          // If swapping from native PHRS
-          if (fromToken === "PHRS") {
-            // Generate the exactInputSingle call data
-            const exactInputSingleData =
-              exactInputSingleFunctionSelector +
-              ethers.utils.defaultAbiCoder
-                .encode(
-                  [
-                    "address", // tokenIn
-                    "address", // tokenOut
-                    "uint24", // fee
-                    "address", // recipient
-                    "uint256", // amountIn
-                    "uint256", // amountOutMinimum
-                    "uint160", // sqrtPriceLimitX96
-                  ],
-                  [
-                    tokenIn,
-                    tokenOut,
-                    FEE_TIERS.LOW, // 500 (0.05%)
-                    this.wallet.address,
-                    amountIn,
-                    "0", // No minimum output
-                    "0", // No price limit
-                  ]
-                )
-                .substring(2);
-
-            // Format the raw transaction with multicall
-            const txData = ethers.utils.hexConcat([
-              "0x5ae401dc", // multicall function selector
-              ethers.utils.defaultAbiCoder.encode(["uint256", "bytes[]"], [deadline, [exactInputSingleData]]),
-            ]);
-
-            // Create transaction parameters
-            const txParams = {
-              to: toChecksumAddress(CONTRACT_ADDRESSES.swapRouter),
-              from: this.wallet.address,
-              value: amountIn,
-              data: txData,
-              maxFeePerGas,
-              maxPriorityFeePerGas,
-            };
-
-            // Estimate gas dynamically
-            txParams.gasLimit = await this.estimateGas(txParams);
-
-            this.logger.info(`Sending native token swap transaction`, { walletIndex: this.walletIndex });
-
-            // Send transaction
-            tx = await this.wallet.sendTransaction(txParams);
-          }
-          // If swapping from ERC20 token
-          else {
-            // First check and approve if needed
-            const tokenContract = new ethers.Contract(tokenIn, ERC20_ABI, this.wallet);
-
-            // Check current allowance
-            const currentAllowance = await tokenContract.allowance(this.wallet.address, CONTRACT_ADDRESSES.swapRouter);
-
-            // If allowance is insufficient, approve first
-            if (currentAllowance.lt(amountIn)) {
-              this.logger.info(`Approving ${fromToken} for swap...`, { walletIndex: this.walletIndex });
-
-              // Get fee data for approval transaction
-              const approvalFeeData = await this.getFeeData();
-
-              const approvalTxParams = {
-                gasLimit: ethers.BigNumber.from(100000), // Default gas limit for approvals
-                maxFeePerGas: approvalFeeData.maxFeePerGas,
-                maxPriorityFeePerGas: approvalFeeData.maxPriorityFeePerGas,
-              };
-
-              // Try to estimate gas for approval
-              try {
-                const approveGasEstimate = await tokenContract.estimateGas.approve(CONTRACT_ADDRESSES.swapRouter, ethers.constants.MaxUint256);
-
-                // Add 30% buffer
-                approvalTxParams.gasLimit = approveGasEstimate.mul(130).div(100);
-              } catch (error) {
-                this.logger.warn(`Error estimating gas for approval: ${error.message}. Using default value.`, { walletIndex: this.walletIndex });
-              }
-
-              const approveTx = await tokenContract.approve(
-                CONTRACT_ADDRESSES.swapRouter,
-                ethers.constants.MaxUint256, // Infinite approval
-                approvalTxParams
-              );
-
-              this.logger.info(`Approval transaction sent: ${approveTx.hash}`, { walletIndex: this.walletIndex });
-
-              // Wait for approval to be confirmed
-              const approveReceipt = await approveTx.wait();
-
-              if (approveReceipt.status === 0) {
-                throw new Error(`Approval transaction failed: ${approveTx.hash}`);
-              }
-
-              this.logger.info(`Approval confirmed: ${approveReceipt.transactionHash}`, { walletIndex: this.walletIndex });
-            }
-
-            // Generate the exactInputSingle call data
-            const exactInputSingleData =
-              exactInputSingleFunctionSelector +
-              ethers.utils.defaultAbiCoder
-                .encode(
-                  [
-                    "address", // tokenIn
-                    "address", // tokenOut
-                    "uint24", // fee
-                    "address", // recipient
-                    "uint256", // amountIn
-                    "uint256", // amountOutMinimum
-                    "uint160", // sqrtPriceLimitX96
-                  ],
-                  [
-                    tokenIn,
-                    tokenOut,
-                    FEE_TIERS.LOW, // 500 (0.05%)
-                    this.wallet.address,
-                    amountIn,
-                    "0", // No minimum output
-                    "0", // No price limit
-                  ]
-                )
-                .substring(2);
-
-            // Format the raw transaction with multicall
-            const txData = ethers.utils.hexConcat([
-              "0x5ae401dc", // multicall function selector
-              ethers.utils.defaultAbiCoder.encode(["uint256", "bytes[]"], [deadline, [exactInputSingleData]]),
-            ]);
-
-            // Create transaction parameters for ERC20 swap
-            const txParams = {
-              to: toChecksumAddress(CONTRACT_ADDRESSES.swapRouter),
-              from: this.wallet.address,
-              value: 0, // No ETH value for ERC20 swaps
-              data: txData,
-              maxFeePerGas,
-              maxPriorityFeePerGas,
-            };
-
-            // Estimate gas dynamically
-            txParams.gasLimit = await this.estimateGas(txParams);
-
-            this.logger.info(`Sending ERC20 token swap transaction`, { walletIndex: this.walletIndex });
-
-            // Send transaction
-            tx = await this.wallet.sendTransaction(txParams);
-          }
-
-          this.logger.info(`Swap transaction sent: ${tx.hash}`, { walletIndex: this.walletIndex });
-
-          // Wait for transaction to be mined
-          const receipt = await tx.wait();
-
-          if (receipt.status === 0) {
-            throw new Error(`Transaction failed: ${tx.hash}`);
-          }
-
-          this.logger.info(`Swap transaction confirmed: ${receipt.transactionHash}`, { walletIndex: this.walletIndex });
-
-          return receipt.transactionHash;
-        },
-        config.general.retry_attempts,
-        config.general.retry_delay,
-        this.logger,
-        this.walletIndex
-      );
+      await tx.wait(3);
+      return {
+        tx: tx.hash,
+        success: true,
+        message: `Swap ${amount} success: ${EXPOLER}${tx.hash}`,
+      };
     } catch (error) {
-      this.logger.error(`Swap failed: ${error.message}`, { walletIndex: this.walletIndex });
-
-      // Log detailed error information
-      if (error.transaction) {
-        this.logger.error(
-          `Transaction details: ${JSON.stringify({
-            hash: error.transaction.hash,
-            from: error.transaction.from,
-            to: error.transaction.to,
-            value: error.transaction.value?.toString(),
-            gasLimit: error.transaction.gasLimit?.toString(),
-            nonce: error.transaction.nonce,
-          })}`,
-          { walletIndex: this.walletIndex }
-        );
-      }
-
-      return null;
+      return {
+        tx: tx.hash,
+        success: true,
+        message: `Swap ${amount} failed: ${error.message}`,
+      };
     }
   }
 }

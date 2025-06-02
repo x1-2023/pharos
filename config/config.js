@@ -11,6 +11,7 @@ const settings = {
   NUMBER_SEND: process.env.NUMBER_SEND ? parseInt(process.env.NUMBER_SEND) : 10,
   NUMBER_SWAP: process.env.NUMBER_SWAP ? parseInt(process.env.NUMBER_SWAP) : 10,
   NUMBER_ADDLP: process.env.NUMBER_ADDLP ? parseInt(process.env.NUMBER_ADDLP) : 10,
+  NUMBER_MINT: process.env.NUMBER_MINT ? parseInt(process.env.NUMBER_MINT) : 1,
 
   SKIP_TASKS: process.env.SKIP_TASKS ? JSON.parse(process.env.SKIP_TASKS.replace(/'/g, '"')) : [],
   TYPE_HERO_UPGRADE: process.env.TYPE_HERO_UPGRADE ? JSON.parse(process.env.TYPE_HERO_UPGRADE.replace(/'/g, '"')) : [],
@@ -40,12 +41,14 @@ const settings = {
   AUTO_FAUCET: process.env.AUTO_FAUCET ? process.env.AUTO_FAUCET.toLowerCase() === "true" : false,
   AUTO_SWAP: process.env.AUTO_SWAP ? process.env.AUTO_SWAP.toLowerCase() === "true" : false,
   AUTO_SEND: process.env.AUTO_SEND ? process.env.AUTO_SEND.toLowerCase() === "true" : false,
+  AUTO_MINT: process.env.AUTO_MINT ? process.env.AUTO_MINT.toLowerCase() === "true" : false,
 
   API_ID: process.env.API_ID ? process.env.API_ID : null,
   BASE_URL: process.env.BASE_URL ? process.env.BASE_URL : null,
   BASE_URL_v2: process.env.BASE_URL_v2 ? process.env.BASE_URL_v2 : "https://testnet-router.zenithswap.xyz",
   REF_CODE: process.env.REF_CODE ? process.env.REF_CODE : "6KrCMbaT8IZqPYUm",
-  RPC_URL: process.env.RPC_URL ? process.env.RPC_URL : "https://evmrpc-testnet.0g.ai",
+  RPC_URL: process.env.RPC_URL ? process.env.RPC_URL : null,
+  EXPOLER: process.env.EXPOLER ? process.env.EXPOLER : null,
   CHAIN_ID: process.env.CHAIN_ID ? process.env.CHAIN_ID : 688688,
 
   TYPE_CAPTCHA: process.env.TYPE_CAPTCHA ? process.env.TYPE_CAPTCHA : null,
