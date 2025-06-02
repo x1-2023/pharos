@@ -73,14 +73,11 @@ class AddLpService {
   async approveToken(tokenAddress, spenderAddress, amount, wallet) {
     try {
       const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
-
-      // Check current allowance
       const currentAllowance = await tokenContract.allowance(wallet.address, spenderAddress);
       if (currentAllowance >= amount) {
         return true;
       }
 
-      // Check token balance
       const balance = await tokenContract.balanceOf(wallet.address);
       if (balance < amount) {
         return {
@@ -91,7 +88,6 @@ class AddLpService {
         };
       }
 
-      // Estimate gas
       let gasLimit;
       try {
         gasLimit = await tokenContract.estimateGas.approve(spenderAddress, amount);
@@ -99,32 +95,15 @@ class AddLpService {
       } catch (error) {
         gasLimit = 500000; // Fallback gas limit
       }
-
-      // Get nonce
       const nonce = await wallet.provider.getTransactionCount(wallet.address, "latest");
-
-      // Simulate approval
-      try {
-        await tokenContract.callStatic.approve(spenderAddress, amount);
-      } catch (error) {
-        console.error("Approval simulation failed:", error.reason || error.message);
-        return {
-          tx: null,
-          success: false,
-          stop: true,
-          message: `Approval simulation failed: ${error.reason || error.message}`,
-        };
-      }
-
-      // Send approval transaction
       const tx = await tokenContract.approve(spenderAddress, amount, { nonce, gasLimit });
       await tx.wait();
       return true;
     } catch (error) {
       if (error.message.includes("TX_REPLAY_ATTACK") || error.code === "CALL_EXCEPTION") {
         this.log("Retrying with incremented nonce...");
-        const newNonce = (await wallet.provider.getTransactionCount(wallet.address, "latest")) + 1;
-        const tx = await tokenContract.approve(spenderAddress, amount, { nonce: newNonce });
+        const nonce = (await wallet.provider.getTransactionCount(wallet.address, "latest")) + 1;
+        const tx = await tokenContract.approve(spenderAddress, amount, { nonce });
         await tx.wait();
         return true;
       }
