@@ -84,7 +84,7 @@ class SwapService {
       if (error.message.includes("TX_REPLAY_ATTACK")) {
         this.log("Retrying with incremented nonce...");
         const nonce = (await wallet.provider.getTransactionCount(wallet.address, "latest")) + 1;
-        const tx = await tokenContract.approve(spenderAddress, amount, { nonce });
+        const tx = await tokenContract.approve(spender, amount, { nonce });
         await tx.wait();
         return true;
       }
