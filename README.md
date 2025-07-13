@@ -4,11 +4,11 @@ Tool được phát triển bởi nhóm tele Airdrop Hunter Siêu Tốc (https:/
 
 Link: [https://testnet.pharosnetwork.xyz/experience](https://testnet.pharosnetwork.xyz/experience?inviteCode=bQ5rxh4Jo3ES2EkC)
 
-## 🚨 Attention Before Running R2 Cli Version
+## 🚨 Attention Before Running Cli Version
 
 I am not `responsible` for the possibility of an account being `banned`!
 
-## 📎 R2 Node cli version Script features
+## 📎 Node cli version Script features
 
 - Auto send
 - Auto faucet

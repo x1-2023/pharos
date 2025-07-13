@@ -12,12 +12,15 @@ const settings = {
   NUMBER_SWAP: process.env.NUMBER_SWAP ? parseInt(process.env.NUMBER_SWAP) : 10,
   NUMBER_ADDLP: process.env.NUMBER_ADDLP ? parseInt(process.env.NUMBER_ADDLP) : 10,
   NUMBER_MINT: process.env.NUMBER_MINT ? parseInt(process.env.NUMBER_MINT) : 1,
+  RENT_YEARS: process.env.RENT_YEARS ? parseInt(process.env.RENT_YEARS) : 1,
+  COMMIT_WAIT_SECONDS: process.env.COMMIT_WAIT_SECONDS ? parseInt(process.env.COMMIT_WAIT_SECONDS) : 1,
 
   SKIP_TASKS: process.env.SKIP_TASKS ? JSON.parse(process.env.SKIP_TASKS.replace(/'/g, '"')) : [],
   TYPE_HERO_UPGRADE: process.env.TYPE_HERO_UPGRADE ? JSON.parse(process.env.TYPE_HERO_UPGRADE.replace(/'/g, '"')) : [],
   TYPE_HERO_RESET: process.env.TYPE_HERO_RESET ? JSON.parse(process.env.TYPE_HERO_RESET.replace(/'/g, '"')) : [],
   TOKENS_FAUCET: process.env.TOKENS_FAUCET ? JSON.parse(process.env.TOKENS_FAUCET.replace(/'/g, '"')) : [],
   TASKS_ID: process.env.TASKS_ID ? JSON.parse(process.env.TASKS_ID.replace(/'/g, '"')) : [],
+  LIST_NFT_MINT: process.env.LIST_NFT_MINT ? JSON.parse(process.env.LIST_NFT_MINT.replace(/'/g, '"')) : [],
 
   AUTO_TASK: process.env.AUTO_TASK ? process.env.AUTO_TASK.toLowerCase() === "true" : false,
   AUTO_CHALLENGE: process.env.AUTO_CHALLENGE ? process.env.AUTO_CHALLENGE.toLowerCase() === "true" : false,
@@ -31,6 +34,7 @@ const settings = {
   AUTO_UPGRADE_SPEED: process.env.AUTO_UPGRADE_SPEED ? process.env.AUTO_UPGRADE_SPEED.toLowerCase() === "true" : false,
   AUTO_BUY_PET: process.env.AUTO_BUY_PET ? process.env.AUTO_BUY_PET.toLowerCase() === "true" : false,
   AUTO_FAUCET_STABLE_COIN: process.env.AUTO_FAUCET_STABLE_COIN ? process.env.AUTO_FAUCET_STABLE_COIN.toLowerCase() === "true" : false,
+  AUTO_SWAP_FAROS: process.env.AUTO_SWAP_FAROS ? process.env.AUTO_SWAP_FAROS.toLowerCase() === "true" : false,
 
   AUTO_ADDLP: process.env.AUTO_ADDLP ? process.env.AUTO_ADDLP.toLowerCase() === "true" : false,
 
@@ -42,6 +46,10 @@ const settings = {
   AUTO_SWAP: process.env.AUTO_SWAP ? process.env.AUTO_SWAP.toLowerCase() === "true" : false,
   AUTO_SEND: process.env.AUTO_SEND ? process.env.AUTO_SEND.toLowerCase() === "true" : false,
   AUTO_MINT: process.env.AUTO_MINT ? process.env.AUTO_MINT.toLowerCase() === "true" : false,
+  AUTO_MINT_BADGE_GRENDLINE: process.env.AUTO_MINT_BADGE_GRENDLINE ? process.env.AUTO_MINT_BADGE_GRENDLINE.toLowerCase() === "true" : false,
+  AUTO_SEND_ALL: process.env.AUTO_SEND_ALL ? process.env.AUTO_SEND_ALL.toLowerCase() === "true" : false,
+  SEND_RANDOM: process.env.SEND_RANDOM ? process.env.SEND_RANDOM.toLowerCase() === "true" : false,
+  AUTO_MINT_DOMAIN: process.env.AUTO_MINT_DOMAIN ? process.env.AUTO_MINT_DOMAIN.toLowerCase() === "true" : false,
 
   API_ID: process.env.API_ID ? process.env.API_ID : null,
   BASE_URL: process.env.BASE_URL ? process.env.BASE_URL : null,
@@ -66,6 +74,7 @@ const settings = {
   DELAY_TASK: process.env.DELAY_TASK && _isArray(process.env.DELAY_TASK) ? JSON.parse(process.env.DELAY_TASK) : [10, 15],
   AMOUNT_SEND: process.env.AMOUNT_SEND && _isArray(process.env.AMOUNT_SEND) ? JSON.parse(process.env.AMOUNT_SEND) : [0.1, 0.2],
   AMOUNT_SWAP: process.env.AMOUNT_SWAP && _isArray(process.env.AMOUNT_SWAP) ? JSON.parse(process.env.AMOUNT_SWAP) : [0.1, 0.2],
+  NUMBER_MINT_NAME: process.env.NUMBER_MINT_NAME && _isArray(process.env.NUMBER_MINT_NAME) ? JSON.parse(process.env.NUMBER_MINT_NAME) : [1, 3],
 };
 
 module.exports = settings;

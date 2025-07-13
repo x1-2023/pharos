@@ -75,8 +75,8 @@ async function sleep(seconds = null) {
   if (seconds && Array.isArray(seconds)) {
     DELAY_BETWEEN_REQUESTS = seconds;
   }
-  min = DELAY_BETWEEN_REQUESTS[0];
-  max = DELAY_BETWEEN_REQUESTS[1];
+  const min = DELAY_BETWEEN_REQUESTS[0];
+  const max = DELAY_BETWEEN_REQUESTS[1];
 
   return await new Promise((resolve) => {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;

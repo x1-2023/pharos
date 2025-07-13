@@ -20,6 +20,8 @@ const wallets = loadData("wallets.txt");
 const TransferService = require("./utils/transfer.js");
 const MintService = require("./utils/mint.js");
 const SwapService = require("./utils/swap.js");
+const MintNameService = require("./utils/mint.domain.js");
+
 // const querystring = require("querystring");
 class ClientAPI {
   constructor(itemData, accountIndex, proxy, baseURL) {
@@ -271,12 +273,21 @@ class ClientAPI {
   }
 
   async verifyTaskWithHash({ address, taskId, txHash }) {
-    const verifyUrl = `${this.baseURL}/task/verify?address=${address}&task_id=${taskId}&tx_hash=${txHash}`;
-    return this.makeRequest(verifyUrl, "post", null, {
-      extraHeaders: {
-        Accept: "application/json, text/plain, */*",
+    const verifyUrl = `${this.baseURL}/task/verify`;
+    return this.makeRequest(
+      verifyUrl,
+      "post",
+      {
+        address: address,
+        task_id: 103,
+        tx_hash: txHash,
       },
-    });
+      {
+        extraHeaders: {
+          Accept: "application/json, text/plain, */*",
+        },
+      }
+    );
   }
 
   async getTaskCompleted() {
@@ -436,9 +447,9 @@ class ClientAPI {
       if (userData?.success) break;
       retries++;
     } while (retries < 1 && userData.status !== 400);
-    const WPHRS_ADDRESS = "0x76aaada469d23216be5f7c596fa25f282ff9b364";
-    const USDC_ADDRESS = "0xad902cf99c2de2f1ba5ec4d642fd7e49cae9ee37";
-    const USDT_ADDRESS = "0xed59de2d7ad9c043442e381231ee3646fc3c2939";
+    const WPHRS_ADDRESS = "0x3019B247381c850ab53Dc0EE53bCe7A07Ea9155f";
+    const USDC_ADDRESS = "0x72df0bcd7276f2dFbAc900D1CE63c272C4BCcCED";
+    const USDT_ADDRESS = "0xD4071393f8716661958F766DF660033b3d35fD29";
     const prams = {
       provider: this.provider,
       wallet: this.wallet,
@@ -513,14 +524,39 @@ class ClientAPI {
       privateKey: this.itemData.privateKey,
       wallet: this.wallet,
       provider: this.provider,
+      log: (mess, type) => this.log(mess, type),
     };
+
+    if (settings.AUTO_SEND_ALL) {
+      const transferService = new TransferService(prams);
+      const recipientAddress = getRandomElement(wallets);
+      if (recipientAddress && recipientAddress !== this.wallet.address) {
+        this.log(`Sending 90% PHRS to ${recipientAddress}`);
+        try {
+          const resSend = await transferService.sendAllToken({ recipientAddress });
+          if (resSend.success) {
+            this.log(resSend.message, "success");
+            await this.handleverifyTaskWithHash({ address: this.itemData.address, taskId: 103, txHash: resSend.tx });
+          } else {
+            this.log(resSend.message, "warning");
+          }
+        } catch (error) {
+          this.log(`Err send token: ${error.message}`, "warning");
+        }
+      }
+    }
+
     if (settings.AUTO_SEND) {
       const transferService = new TransferService(prams);
       let limit = settings.NUMBER_SEND;
       let current = limit;
       while (current > 0) {
-        const recipientAddress = getRandomElement(wallets);
-        if (recipientAddress && recipientAddress !== this.wallet.address) {
+        let recipientAddress = wallets[limit - current];
+        if (settings.SEND_RANDOM) {
+          recipientAddress = getRandomElement(wallets);
+        }
+        if (!recipientAddress) return;
+        if (recipientAddress !== this.wallet.address) {
           let amount = getRandomNumber(settings.AMOUNT_SEND[0], settings.AMOUNT_SEND[1], 4);
           this.log(`[${current}/${limit}] Sending ${amount} PHRS to ${recipientAddress}`);
           try {
@@ -547,31 +583,55 @@ class ClientAPI {
       }
     }
 
+    if (settings.AUTO_MINT_DOMAIN) {
+      this.log(`Starting mint domain...`, "info");
+
+      const mintDomainService = new MintNameService(prams);
+      const res = await mintDomainService.mintNames();
+      console.log(res);
+    }
+
     //mint
     if (settings.AUTO_MINT) {
       const mintService = new MintService(prams);
       let limit = settings.NUMBER_MINT;
       let current = limit;
-      while (current > 0) {
-        this.log(`[${current}/${limit}] Minting NFT...`);
-        try {
-          const result = await mintService.mintGotChip();
-          if (result.success) {
-            this.log(result.message, "success");
-          } else {
-            this.log(result.message, "warning");
-            if (result?.stop) {
-              break;
-            }
-          }
-        } catch (error) {
-          this.log(`Err mint: ${error.message}`, "warning");
+
+      for (const nft of settings.LIST_NFT_MINT) {
+        if (nft !== "gotchip") {
+          current = 1;
+          limit = 1;
         }
-        current--;
-        if (current > 0) {
-          const timesleep = getRandomNumber(settings.DELAY_BETWEEN_REQUESTS[0], settings.DELAY_BETWEEN_REQUESTS[1]);
-          this.log(`Delay ${timesleep}s to next transaction...`);
-          await sleep(timesleep);
+        while (current > 0) {
+          this.log(`[${current}/${limit}] Minting ${nft} NFT...`);
+          try {
+            let result = null;
+            if (nft == "gotchip") {
+              result = await mintService.mintGotChip();
+            } else if (nft == "grandline") {
+              result = await mintService.mintGrandline();
+            } else if (nft == "pharos_badge") {
+              result = await mintService.mintPharosBadge();
+            } else if (nft == "faros_badge") {
+              result = await mintService.mintFarosBadge();
+            }
+            if (result.success) {
+              this.log(result.message, "success");
+            } else {
+              this.log(result.message, "warning");
+              if (result?.stop) {
+                break;
+              }
+            }
+          } catch (error) {
+            this.log(`Err mint: ${error.message}`, "warning");
+          }
+          current--;
+          if (current > 0) {
+            const timesleep = getRandomNumber(settings.DELAY_BETWEEN_REQUESTS[0], settings.DELAY_BETWEEN_REQUESTS[1]);
+            this.log(`Delay ${timesleep}s to next transaction...`);
+            await sleep(timesleep);
+          }
         }
       }
     }
@@ -744,18 +804,18 @@ async function main() {
               resolve();
             });
             worker.on("error", (error) => {
-              // console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
+              console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
               worker.terminate();
               resolve();
             });
             worker.on("exit", (code) => {
-              worker.terminate();
-              // console.log(`Worker thoát ${currentIndex}: ${code}`);
+              if (code !== 0) {
+                console.log(`Worker thoát với mã lỗi ${code} cho tài khoản ${currentIndex}`);
+              }
               resolve();
             });
           })
         );
-
         currentIndex++;
       }
 
