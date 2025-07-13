@@ -63,6 +63,7 @@ const settings = {
   API_KEY_2CAPTCHA: process.env.API_KEY_2CAPTCHA ? process.env.API_KEY_2CAPTCHA : null,
   API_KEY_ANTI_CAPTCHA: process.env.API_KEY_ANTI_CAPTCHA ? process.env.API_KEY_ANTI_CAPTCHA : null,
   API_KEY_CAPMONSTER: process.env.API_KEY_CAPMONSTER ? process.env.API_KEY_CAPMONSTER : null,
+  API_KEY_CAPGURU: process.env.API_KEY_CAPGURU ? process.env.API_KEY_CAPGURU : null,
   CAPTCHA_URL: process.env.CAPTCHA_URL ? process.env.CAPTCHA_URL : null,
   WEBSITE_KEY: process.env.WEBSITE_KEY ? process.env.WEBSITE_KEY : null,
   DAILY_COMBO: process.env.DAILY_COMBO ? process.env.DAILY_COMBO : null,
