@@ -588,7 +588,6 @@ class ClientAPI {
 
       const mintDomainService = new MintNameService(prams);
       const res = await mintDomainService.mintNames();
-      console.log(res);
     }
 
     //mint
@@ -804,13 +803,11 @@ async function main() {
               resolve();
             });
             worker.on("error", (error) => {
-              console.log(`Lỗi worker cho tài khoản ${currentIndex}: ${error?.message}`);
               worker.terminate();
               resolve();
             });
             worker.on("exit", (code) => {
               if (code !== 0) {
-                console.log(`Worker thoát với mã lỗi ${code} cho tài khoản ${currentIndex}`);
               }
               resolve();
             });
